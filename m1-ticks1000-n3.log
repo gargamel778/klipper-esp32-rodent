@@ -1,0 +1,38 @@
+
+  This is a debugging console for the Klipper micro-controller.
+  In addition to mcu commands, the following artificial commands are
+  available:
+    DELAY : Send a command at a clock time (eg, "DELAY 9999 get_uptime")
+    FLOOD : Send a command many times (eg, "FLOOD 22 .01 get_uptime")
+    SUPPRESS : Suppress a response message (eg, "SUPPRESS analog_in_state 4")
+    SET   : Create a local variable (eg, "SET myvar 123.4")
+    DUMP  : Dump memory (eg, "DUMP 0x12345678 100 32")
+    FILEDUMP : Dump to file (eg, "FILEDUMP data.bin 0x12345678 100 32")
+    STATS : Report serial statistics
+    LIST  : List available mcu commands, local commands, and local variables
+    HELP  : Show this text
+  All commands also support evaluation by enclosing an expression in { }.
+  For example, "reset_step_clock oid=4 clock={clock + freq}".  In addition
+  to user defined variables (via the SET command) the following builtin
+  variables may be used in expressions:
+    clock : The current mcu clock time (as estimated by the host)
+    freq  : The mcu clock frequency
+
+==================== attempting to connect ====================
+INFO:root:Starting serial connect
+Loaded 119 commands (33b24213-dirty-20260807_093501-build-host / gcc: (crosstool-NG esp-14.2.0_20241119) 14.2.0 binutils: (crosstool-NG esp-14.2.0_20241119) 2.43.1)
+MCU config: ADC_MAX=3300 CLOCK_FREQ=240000000 MCU=esp32 PWM_MAX=255 RECEIVE_WINDOW=192 SERIAL_BAUD=250000 STATS_SUMSQ_BASE=256 STEPPER_STEP_BOTH_EDGE=1
+====================       connected       ====================
+005.423: stats count=155 sum=494832 sumsq=8685372
+Eval: SET start_clock 2044838007
+Eval: reset_step_clock oid=0 clock=2044838007
+Eval: queue_step oid=0 interval=1000 count=60000 add=0
+Eval: reset_step_clock oid=1 clock=2044838007
+Eval: queue_step oid=1 interval=1000 count=60000 add=0
+Eval: reset_step_clock oid=2 clock=2044838007
+Eval: queue_step oid=2 interval=1000 count=60000 add=0
+010.523: stats count=69 sum=117157 sumsq=4388072
+015.623: stats count=56 sum=49965 sumsq=242035
+020.623: stats count=55 sum=49072 sumsq=236519
+025.723: stats count=56 sum=49898 sumsq=240910
+030.723: stats count=55 sum=49195 sumsq=238949

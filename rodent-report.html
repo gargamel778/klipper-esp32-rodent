@@ -1,0 +1,868 @@
+<title>Klipper on an ESP32 — BTT Rodent V1.1 Engineering Report</title>
+<style>
+  :root{
+    --ground:#F2F5F6; --surface:#FFFFFF; --surface-2:#F8FAFB;
+    --ink:#14181B; --ink-2:#384248; --muted:#5F6C74; --faint:#8A959B;
+    --rule:#D9E1E4; --rule-strong:#BFCBD0;
+    --accent:#0B6E7C; --accent-2:#0A5766; --accent-soft:#E2EFF1;
+    --pass:#2C6E49; --pass-soft:#E4F0E9;
+    --fail:#A32E24; --fail-soft:#F7E6E4;
+    --warn:#8A6212; --warn-soft:#F6EEDC;
+    --shadow:0 1px 2px rgba(20,24,27,.05), 0 8px 24px -12px rgba(20,24,27,.18);
+    --display:"Helvetica Neue",-apple-system,"Segoe UI",system-ui,sans-serif;
+    --body:Charter,"Bitstream Charter","Iowan Old Style","Palatino Linotype",Georgia,serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#0E1214; --surface:#151B1E; --surface-2:#1A2225;
+      --ink:#E7EDEF; --ink-2:#C2CDD2; --muted:#94A2A8; --faint:#6F7C82;
+      --rule:#242E32; --rule-strong:#33403F;
+      --accent:#48BECD; --accent-2:#7FD8E3; --accent-soft:#0E2E33;
+      --pass:#6BC08B; --pass-soft:#13291E;
+      --fail:#E0796D; --fail-soft:#2E1714;
+      --warn:#D7A94A; --warn-soft:#2A2113;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1214; --surface:#151B1E; --surface-2:#1A2225;
+    --ink:#E7EDEF; --ink-2:#C2CDD2; --muted:#94A2A8; --faint:#6F7C82;
+    --rule:#242E32; --rule-strong:#33403F;
+    --accent:#48BECD; --accent-2:#7FD8E3; --accent-soft:#0E2E33;
+    --pass:#6BC08B; --pass-soft:#13291E;
+    --fail:#E0796D; --fail-soft:#2E1714;
+    --warn:#D7A94A; --warn-soft:#2A2113;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"]{
+    --ground:#F2F5F6; --surface:#FFFFFF; --surface-2:#F8FAFB;
+    --ink:#14181B; --ink-2:#384248; --muted:#5F6C74; --faint:#8A959B;
+    --rule:#D9E1E4; --rule-strong:#BFCBD0;
+    --accent:#0B6E7C; --accent-2:#0A5766; --accent-soft:#E2EFF1;
+    --pass:#2C6E49; --pass-soft:#E4F0E9;
+    --fail:#A32E24; --fail-soft:#F7E6E4;
+    --warn:#8A6212; --warn-soft:#F6EEDC;
+    --shadow:0 1px 2px rgba(20,24,27,.05), 0 8px 24px -12px rgba(20,24,27,.18);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font-family:var(--body);font-size:17px;line-height:1.65;
+       -webkit-font-smoothing:antialiased}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px;
+        display:grid;grid-template-columns:236px minmax(0,1fr);gap:56px;align-items:start}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr;gap:0}}
+
+  /* ---- masthead ---- */
+  .mast{grid-column:1/-1;padding:56px 0 28px;border-bottom:2px solid var(--ink);margin-bottom:40px}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+          color:var(--accent);font-weight:600}
+  .mast h1{font-family:var(--display);font-weight:800;letter-spacing:-.028em;
+           font-size:clamp(2.1rem,5.2vw,3.35rem);line-height:1.04;margin:14px 0 12px;
+           text-wrap:balance;max-width:20ch}
+  .standfirst{font-size:1.16rem;color:var(--ink-2);max-width:62ch;margin:0}
+  .byline{margin-top:22px;font-family:var(--mono);font-size:11.5px;color:var(--faint);
+          display:flex;flex-wrap:wrap;gap:18px;letter-spacing:.04em}
+
+  /* ---- nav rail ---- */
+  nav{position:sticky;top:24px;font-family:var(--mono);font-size:12.5px;line-height:1.5}
+  @media (max-width:900px){nav{position:static;margin-bottom:44px;
+    border:1px solid var(--rule);border-radius:4px;padding:18px 20px;background:var(--surface)}}
+  nav .navhead{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+               color:var(--faint);margin-bottom:12px;font-weight:600}
+  nav ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;
+         position:relative;border-left:2px solid var(--rule)}
+  /* the marker rides the rail and tracks whichever section is in view */
+  nav .marker{position:absolute;left:-2px;top:0;width:2px;height:0;background:var(--accent);
+              transition:transform .22s cubic-bezier(.4,0,.2,1),height .22s cubic-bezier(.4,0,.2,1);
+              will-change:transform,height}
+  nav a{display:block;padding:4px 8px 4px 12px;color:var(--muted);text-decoration:none;
+        transition:color .14s}
+  nav a:hover,nav a:focus-visible{color:var(--accent)}
+  nav a.active{color:var(--ink);font-weight:600}
+  nav a.active .num{color:var(--accent)}
+  @media (prefers-reduced-motion:reduce){nav .marker{transition:none}}
+  nav .num{color:var(--faint);margin-right:7px}
+
+  main{min-width:0}
+  section{margin-bottom:64px;scroll-margin-top:24px}
+  h2{font-family:var(--display);font-weight:750;letter-spacing:-.02em;
+     font-size:1.62rem;line-height:1.15;margin:0 0 6px;text-wrap:balance}
+  h2 .sn{font-family:var(--mono);font-size:.72em;font-weight:600;color:var(--accent);
+          letter-spacing:.04em;margin-right:12px;vertical-align:.06em}
+  .sectrule{height:1px;background:var(--rule-strong);margin:0 0 24px}
+  h3{font-family:var(--display);font-weight:700;letter-spacing:-.012em;font-size:1.1rem;
+     margin:36px 0 10px;color:var(--ink)}
+  h4{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;
+     color:var(--muted);margin:28px 0 8px;font-weight:600}
+  p{margin:0 0 16px;max-width:70ch}
+  ul,ol.body{margin:0 0 16px;padding-left:22px;max-width:70ch}
+  li{margin-bottom:7px}
+  strong{font-weight:700;color:var(--ink)}
+  a{color:var(--accent)}
+  code{font-family:var(--mono);font-size:.855em;background:var(--surface-2);
+       border:1px solid var(--rule);border-radius:3px;padding:.06em .32em;color:var(--ink-2)}
+
+  /* ---- exec metrics ---- */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+           gap:1px;background:var(--rule);border:1px solid var(--rule);margin:0 0 28px}
+  .metric{background:var(--surface);padding:16px 18px}
+  .metric .v{font-family:var(--display);font-weight:780;font-size:1.72rem;letter-spacing:-.03em;
+             line-height:1;color:var(--accent);font-variant-numeric:tabular-nums}
+  .metric .l{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+             color:var(--muted);margin-top:7px;line-height:1.35}
+
+  /* ---- tables ---- */
+  .tw{overflow-x:auto;margin:0 0 20px;border:1px solid var(--rule);background:var(--surface)}
+  table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;
+        font-variant-numeric:tabular-nums}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:10.5px;
+          letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+          padding:12px 14px 10px;border-bottom:1px solid var(--rule);font-weight:600}
+  th{text-align:left;padding:9px 14px;border-bottom:1px solid var(--rule-strong);
+     color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.05em;
+     text-transform:uppercase;white-space:nowrap}
+  td{padding:8px 14px;border-bottom:1px solid var(--rule);color:var(--ink-2);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:none}
+  .num{text-align:right}
+  .hi td{background:var(--accent-soft);color:var(--ink);font-weight:600}
+  .dim td{color:var(--faint)}
+
+  .tag{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;
+       letter-spacing:.07em;text-transform:uppercase;padding:2px 7px;border-radius:2px;
+       border:1px solid currentColor}
+  .t-pass{color:var(--pass);background:var(--pass-soft)}
+  .t-fail{color:var(--fail);background:var(--fail-soft)}
+  .t-warn{color:var(--warn);background:var(--warn-soft)}
+
+  /* ---- callouts ---- */
+  .note{border-left:3px solid var(--accent);background:var(--surface);padding:16px 20px;
+        margin:0 0 22px;box-shadow:var(--shadow)}
+  .note.err{border-left-color:var(--fail)}
+  .note.warn{border-left-color:var(--warn)}
+  .note .nh{font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;
+            font-weight:700;color:var(--accent);margin-bottom:7px}
+  .note.err .nh{color:var(--fail)}
+  .note.warn .nh{color:var(--warn)}
+  .note p{margin:0 0 10px;font-size:.96rem}
+  .note p:last-child{margin-bottom:0}
+
+  .eq{font-family:var(--mono);font-size:13px;background:var(--surface);
+      border:1px solid var(--rule);border-left:3px solid var(--accent);
+      padding:14px 18px;margin:0 0 18px;overflow-x:auto;line-height:1.8;color:var(--ink-2)}
+  .eq b{color:var(--ink);font-weight:700}
+
+  pre{font-family:var(--mono);font-size:12px;background:var(--surface);border:1px solid var(--rule);
+      padding:14px 18px;overflow-x:auto;margin:0 0 18px;line-height:1.6;color:var(--ink-2)}
+
+  .lede{font-size:1.06rem;color:var(--ink-2);max-width:68ch}
+  footer{grid-column:1/-1;border-top:1px solid var(--rule-strong);padding-top:20px;
+         font-family:var(--mono);font-size:11.5px;color:var(--faint);line-height:1.7}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <div class="kicker">Engineering Report · Embedded Motion Control</div>
+    <h1>Klipper on a $6 ESP32</h1>
+    <p class="standfirst">A BTT Rodent V1.1 was asked to do something it was never built for: run Klipper as a primary MCU. It ends up completing a rule-legal SpeedBoatRace Benchy in 3:30 — but the more useful result is a catalogue of measurements that lied.</p>
+    <div class="byline">
+      <span>BTT Rodent V1.1 · ESP32-WROOM-32URA-N4 · 4× TMC2160</span>
+      <span>fermino/klipper-esp32-port</span>
+      <span>2026-08-07 → 2026-08-08</span>
+    </div>
+  </header>
+
+  <nav aria-label="Contents">
+    <div class="navhead">Contents</div>
+    <ol>
+      <li aria-hidden="true"><span class="marker"></span></li>
+      <li><a href="#summary"><span class="num">00</span>Executive summary</a></li>
+      <li><a href="#origin"><span class="num">01</span>Origin &amp; motivation</a></li>
+      <li><a href="#hardware"><span class="num">02</span>The hardware</a></li>
+      <li><a href="#firmware"><span class="num">03</span>The firmware port</a></li>
+      <li><a href="#motion"><span class="num">04</span>First motion</a></li>
+      <li><a href="#baud"><span class="num">05</span>The serial link</a></li>
+      <li><a href="#synthetic"><span class="num">06</span>Synthetic stress tests</a></li>
+      <li><a href="#sr"><span class="num">07</span>Firmware optimisation</a></li>
+      <li><a href="#ab"><span class="num">08</span>Controlled A/B</a></li>
+      <li><a href="#real"><span class="num">09</span>Real prints</a></li>
+      <li><a href="#math"><span class="num">10</span>The motion maths</a></li>
+      <li><a href="#speedboat"><span class="num">11</span>The speed Benchy</a></li>
+      <li><a href="#traps"><span class="num">12</span>Measurement traps</a></li>
+      <li><a href="#open"><span class="num">13</span>Open questions</a></li>
+      <li><a href="#repro"><span class="num">14</span>Reproducibility</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ SUMMARY ============ -->
+    <section id="summary">
+      <h2><span class="sn">00</span>Executive summary</h2>
+      <div class="sectrule"></div>
+      <div class="metrics">
+        <div class="metric"><div class="v">800</div><div class="l">mm/s &mdash; 10/10 reliable at SCV 30</div></div>
+        <div class="metric"><div class="v">100</div><div class="l">mm&sup3;/s &mdash; exactly a hotend&rsquo;s melt limit</div></div>
+        <div class="metric"><div class="v">3:45</div><div class="l">Rule-legal speed Benchy, every time</div></div>
+        <div class="metric"><div class="v">1.5M</div><div class="l">Baud &mdash; the single biggest win</div></div>
+        <div class="metric"><div class="v">0</div><div class="l">Firmware optimisations that survived</div></div>
+      </div>
+      <p class="lede">Klipper was ported onto a BTT Rodent V1.1 &mdash; an ESP32-based CNC board with four TMC2160 drivers whose step, direction and enable lines all hang off a 74HC595 shift register. It works: all four axes drive real motors, every commanded step pulse arrives at every driver, and the board completes a SpeedBoatRace-legal 3DBenchy in <strong>3 minutes 45 seconds, ten times out of ten</strong>, at 800&nbsp;mm/s with 100k acceleration and a square-corner velocity of 30.</p>
+
+      <div class="note">
+        <div class="nh">The result that matters</div>
+        <p>At 0.25&nbsp;mm layers and 0.5&nbsp;mm line width the profile extrudes 0.125&nbsp;mm&sup2; per mm of path, so <strong>800&nbsp;mm/s is exactly 100&nbsp;mm&sup3;/s</strong> &mdash; the melt-rate ceiling of a high-end hotend. The board&rsquo;s reliable maximum lands precisely where the <em>hotend</em> gives out, at motion settings a purpose-built machine could genuinely run.</p>
+        <p><strong>The controller is not the bottleneck.</strong> That is a more useful claim than any speed record, and unlike the headline this report originally carried, it survives repetition.</p>
+      </div>
+
+      <p>The engineering value, though, is mostly negative results. Three separate measurements pointed confidently in the wrong direction, and each was only caught because a later number refused to cohere with it:</p>
+
+      <ul>
+        <li>A synthetic CoreXY workload reported a hard ceiling at 300&nbsp;mm/s and attributed it to firmware scheduling. It was the <strong>serial baud rate</strong>. Raising it doubled the envelope.</li>
+        <li>A shift-register optimisation benchmarked <strong>+54%</strong> and passed a driver-level pulse-integrity test 40/40. Under real four-stepper load it shut the MCU down in <strong>27 moves</strong>, where stock firmware ran 1716 clean.</li>
+        <li>The synthetic protocol was assumed to under-represent a real print. It was <strong>far harsher</strong> — commanding 32,000–80,000 steps/s per motor where a real Benchy is accel-limited to ~6,000.</li>
+        <li>A <strong>&ldquo;1000&nbsp;mm/s ceiling&rdquo; was published from a single run.</strong> Repeated properly it completes <strong>3 times in 8</strong> — the published figure would have lost two jobs in three.</li>
+      </ul>
+
+      <div class="note">
+        <div class="nh">The single most transferable finding</div>
+        <p>In Klipper's planner, <code>junction_deviation = SCV²·(√2−1)/max_accel</code> and <code>move_jd_v2 = R_jd · junction_deviation · accel</code>. The acceleration <strong>cancels</strong>. On geometry with a sub-millimetre median segment — which is every real print — <code>square_corner_velocity</code> sets the speed and acceleration cannot touch it. Commanding 5× the feedrate and 8× the acceleration moved one measured ramp by 19%.</p>
+      </div>
+      <div class="note warn">
+        <div class="nh">Standing caveat on every number here</div>
+        <p>These are bench measurements with unloaded steppers, no hotend and no filament. Every result means <strong>the electronics kept up</strong> — never <em>the machine moved</em>. At 900&nbsp;mm/s the pulleys spin but stall under finger pressure. <code>Timer too close</code> is an MCU scheduling failure and is independent of whether the rotor follows, so the electronic ceiling transfers to a capable machine; the print times do not.</p>
+      </div>
+    </section>
+
+    <!-- ============ ORIGIN ============ -->
+    <section id="origin">
+      <h2><span class="sn">01</span>Origin &amp; motivation</h2>
+      <div class="sectrule"></div>
+      <p>The project began as a documentation question: could an ESP32 serve as a <em>secondary</em> MCU under Klipper, handling GPIO only, with motion left to a real board? Klipper's architecture makes that plausible — the host does all planning and step generation, and the MCU is a timed I/O engine behind a well-defined HAL in <code>src/generic/</code>.</p>
+
+      <p>The scope then widened deliberately: ignore Wi-Fi and Bluetooth, ignore the "no motion system" caveat, and port the whole thing — including as a <em>primary</em> MCU. Two community forks existed; <code>fermino/klipper-esp32-port</code> was chosen for its more complete HAL and its existing 74HC595 support, which matters because the target board routes all step/dir/enable through one.</p>
+
+      <p>The target hardware was chosen for availability rather than suitability: a <strong>BTT Rodent V1.1</strong>, of which two spares existed. It is a classic Xtensa ESP32, not an S3 — which turns out to be load-bearing, because this port derives Klipper's timer from the Xtensa <code>CCOUNT</code>/<code>CCOMPARE</code> core registers, which the RISC-V ESP32 variants (C3/C6/H2) do not have; <code>timer.c</code> hard-<code>#error</code>s on a non-Xtensa target. That is a constraint of <em>this</em> port rather than of the silicon: the RISC-V parts expose a <code>SYSTIMER</code> peripheral whose <code>TARGET0</code> comparator provides an equivalent compare interrupt, and a separate ESP32 port (<a href="https://github.com/kluoyun/klipper/tree/dev/esp32">kluoyun/klipper</a>, branch <code>dev/esp32</code>, published 2026-08-31) drives an ESP32-C3 that way. The trade is resolution — <code>SYSTIMER</code> runs at 16 MHz against <code>CCOUNT</code>'s 240 MHz, about 15× coarser per tick.</p>
+
+      <p>Explicit non-goals, set at the outset: no collaboration with the upstream fork author, no reduction below 16 microsteps (the established 3D-printing minimum), and no changes to pulley sizes. Optimisation had to come from the firmware and the configuration, not from making the mechanics easier.</p>
+    </section>
+
+    <!-- ============ HARDWARE ============ -->
+    <section id="hardware">
+      <h2><span class="sn">02</span>The hardware</h2>
+      <div class="sectrule"></div>
+      <div class="tw">
+        <table>
+          <caption>Bench configuration</caption>
+          <tbody>
+            <tr><th>MCU</th><td>ESP32-WROOM-32URA-N4 (Xtensa LX6, 240 MHz, CCOUNT/CCOMPARE timer)</td></tr>
+            <tr><th>Board</th><td>BTT Rodent V1.1 — silkscreen-confirmed, no J48 on this revision</td></tr>
+            <tr><th>Drivers</th><td>4 × <strong>TMC2160</strong>, SPI daisy-chain, shared CS on GPIO5 <em>(see note)</em></td></tr>
+            <tr><th>Step/dir/en</th><td>74HC595 shift register, driven by ESP32 SPI2 hardware at 40 MHz</td></tr>
+            <tr><th>Motors</th><td>4 × NEMA17 42CM08, 2.5 A rated, run at 0.8 A, unloaded</td></tr>
+            <tr><th>Supply</th><td>20 V → 24 V → 36 V over the course of testing <em>(board is rated 24–56 V; the 20 V phase was below spec)</em></td></tr>
+            <tr><th>USB serial</th><td>CH340K (PID 0x7522)</td></tr>
+            <tr><th>Host</th><td>GPD P2 MAX, Core m3-8100Y, Ubuntu 24.04, bare metal</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn">
+        <div class="nh">Driver part number — corrected against the official manual</div>
+        <p>The drivers are <strong>TMC2160</strong>, not TMC5160. Earlier notes in this project said 5160 because the board's FluidNC configuration declares them that way — FluidNC has no direct TMC2160 support, so the 5160 driver is used as a stand-in.</p>
+        <p>The substitution is legitimate in both firmwares for the same reason: <strong>the TMC2160 is a TMC5160 without the integrated motion controller.</strong> The ramp generator is absent, but the driver half — <code>GCONF</code>, <code>CHOPCONF</code>, <code>IHOLD_IRUN</code>, <code>GLOBALSCALER</code>, <code>COOLCONF</code>, <code>PWMCONF</code>, <code>DRV_STATUS</code>, <code>MSCNT</code>, the microstep tables — is shared. Klipper drives these purely in step/dir mode and touches only those registers, so a <code>[tmc5160]</code> section is correct and complete for this hardware. Every register-level result in this report, including the MSCNT verification, holds unchanged.</p>
+      </div>
+      <h3>Board-level findings</h3>
+
+      <div class="note err">
+        <div class="nh">Sense resistor — a 3.4× current error waiting to happen</div>
+        <p>The V1.1 board carries <strong>R075 (0.075 Ω)</strong> sense resistors. BTT's published configuration specifies <code>0.022</code>. Using the published value would command roughly <strong>3.4× the intended motor current</strong>. Verified visually on the board; the remaining resistors sit under the heatsink. <strong>Independently confirmed by the official manual</strong>, whose V1.1 pin diagram labels the part <code>RSENSE 75MR</code>.</p>
+      </div>
+      <ul>
+        <li><strong>USB-C has no CC pull-downs.</strong> A C-to-C cable will never enumerate; a legacy A-to-C cable is required.</li>
+        <li><strong>macOS 26 will not bind the CH340K.</strong> Apple's built-in <code>AppleUSBCHCOM</code> does not claim PID 0x7522, and a duplicate third-party dext conflicts with it. CLI-active is not the same as UI-active on this OS version.</li>
+        <li><strong>Brownout under USB power.</strong> Flash reads of 3 KB succeeded; 192 KB and 4 MB reads dropped the port entirely. Connecting the bench supply resolved it. Any full-flash backup needs external power.</li>
+      </ul>
+
+      <h3>Pin map verification</h3>
+      <p>The shift-register bit ordering and the TMC daisy-chain position were both verified electrically rather than assumed: <code>SRn</code> maps to <code>I2SO.n</code>, and <code>spi_index N</code> corresponds to <code>chain_position N</code>. Each of the four ports was confirmed by driving one axis at a time and observing both rotation and the corresponding driver's <code>DRV_STATUS</code> open-load flags.</p>
+
+      <p>The manual's own pin table matches the empirically derived map exactly — STEP <code>I2SO.2/5/10/13</code>, DIR <code>I2SO.1/4/9/12</code>, EN <code>I2SO.0/7/8/15</code>, CS <code>gpio.5</code>, SCK <code>gpio.18</code>, SDI <code>gpio.19</code>, SDO <code>gpio.23</code>. Deriving it from the hardware first was still worthwhile: it is what made the R075 discrepancy visible rather than inherited from a config file.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Verified axis mapping</caption>
+          <thead><tr><th>Axis</th><th>Step</th><th>Dir</th><th>Enable</th><th>Chain pos</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>X (A motor)</td><td>SR2</td><td>SR1</td><td>!SR0</td><td class="num">1</td><td><span class="tag t-pass">motor</span></td></tr>
+            <tr><td>Y (B motor)</td><td>SR5</td><td>SR4</td><td>!SR7</td><td class="num">2</td><td><span class="tag t-pass">motor</span></td></tr>
+            <tr><td>Z</td><td>SR10</td><td>SR9</td><td>!SR8</td><td class="num">3</td><td><span class="tag t-pass">motor</span></td></tr>
+            <tr><td>E</td><td>SR13</td><td>SR12</td><td>!SR15</td><td class="num">4</td><td><span class="tag t-pass">motor</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ FIRMWARE ============ -->
+    <section id="firmware">
+      <h2><span class="sn">03</span>The firmware port</h2>
+      <div class="sectrule"></div>
+      <p>The base is <code>fermino/klipper-esp32-port</code>, built against ESP-IDF. Four patches were required before it would build and run correctly on current tooling — none of them deep, but all of them blocking.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Local patches to the fork</caption>
+          <thead><tr><th>File</th><th>Change</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>gpio_pwm.h</td><td><code>ledc_ll_set_duty_start(…, true)</code></td><td>IDF ≥ 5.5.1 added a 4th argument</td></tr>
+            <tr><td>scripts/ctr/extract_sections</td><td><code>mktemp -d</code> + fixed name</td><td><code>mktemp --suffix</code> is GNU-only; nobody had built this on a Mac</td></tr>
+            <tr><td>gpio_pwm.c</td><td>Added <code>DECL_CONSTANT("PWM_MAX", …)</code></td><td>Any <code>hardware_pwm: True</code> died at startup without it</td></tr>
+            <tr><td>Kconfig</td><td><code>select HAVE_STEPPER_OPTIMIZED_BOTH_EDGE</code></td><td><strong>+18%</strong> step rate; one timer event per step</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Two further edits to <code>klippy/chelper/</code> guard Linux-only headers (<code>sys/prctl.h</code>, <code>linux/can.h</code>) so the host tools build on macOS. Those are host-side only and irrelevant on the Linux bench.</p>
+
+      <div class="note warn">
+        <div class="nh">Build gotcha</div>
+        <p><code>make V=1</code> breaks the build. The flag propagates through <code>MAKEFLAGS</code> into the CMake environment probe, whose <code>echo "__ENV_END__"</code> has no <code>=</code> and throws <em>list index: 1 out of range</em>. Never use it here.</p>
+      </div>
+    </section>
+
+    <!-- ============ MOTION ============ -->
+    <section id="motion">
+      <h2><span class="sn">04</span>First motion, and how it was verified</h2>
+      <div class="sectrule"></div>
+      <p>Motors were added one at a time, drivers disabled between insertions, with each axis confirmed to rotate in both directions before the next was connected. Current was set conservatively at 0.8 A into 2.5 A motors.</p>
+
+      <p>Rotation alone is weak evidence, so pulse integrity was measured at the driver. The TMC2160 exposes <strong>MSCNT</strong> (register 0x6A), a 10-bit microstep-table counter that advances on every STEP pulse the driver receives. It sits on the far side of the shift register and is independent of anything the MCU believes. At <code>microsteps: 16</code>, each pulse advances it by exactly 256/16 = 16.</p>
+
+      <div class="eq">
+        expected MSCNT delta = <b>(N × 16) mod 1024</b>, signed by direction
+      </div>
+      <p>Result: <strong>40 of 40 cases exact</strong> — all four axes, both directions, from 8 pulses up to 12,037 pulses at 64,000 steps/s.</p>
+
+      <div class="note warn">
+        <div class="nh">Two traps in this test</div>
+        <p>MSCNT counts <em>down</em> for a positive move on this DIR polarity, so the test must calibrate direction per axis rather than assume it. And any test distance whose residue is <strong>±512</strong> is useless — 512 is its own negation mod 1024, so it cannot distinguish a correct move from a perfectly reversed one. The first run of this test reported 24/32 "failures" that were entirely the first mistake.</p>
+      </div>
+    </section>
+
+    <!-- ============ BAUD ============ -->
+    <section id="baud">
+      <h2><span class="sn">05</span>The serial link — the largest single win</h2>
+      <div class="sectrule"></div>
+      <p>Klipper's <code>CONFIG_SERIAL_BAUD</code> is compile-time and must match the host's <code>baud:</code>. Early testing ran at 250000 and produced a hard CoreXY ceiling at 300&nbsp;mm/s, which was attributed — wrongly — to firmware scheduling. Changing only this one value transformed the result.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Identical CoreXY workload, only CONFIG_SERIAL_BAUD changed · retransmit %</caption>
+          <thead><tr><th>print mm/s</th><th class="num">250000</th><th class="num">921600</th><th class="num">1500000</th><th class="num">2000000</th></tr></thead>
+          <tbody>
+            <tr><td>60</td><td class="num">1.13</td><td class="num">1.07</td><td class="num">0.05</td><td class="num">6.11 <span class="tag t-fail">shutdown</span></td></tr>
+            <tr><td>100</td><td class="num">3.02</td><td class="num">1.17</td><td class="num">0.20</td><td class="num">—</td></tr>
+            <tr><td>200</td><td class="num">7.50</td><td class="num">3.96</td><td class="num">0.37</td><td class="num">—</td></tr>
+            <tr><td>300</td><td class="num">26.38 <span class="tag t-fail">shutdown</span></td><td class="num">10.09</td><td class="num">0.95</td><td class="num">—</td></tr>
+            <tr><td>400</td><td class="num">—</td><td class="num">9.29 <span class="tag t-fail">shutdown</span></td><td class="num">3.68</td><td class="num">—</td></tr>
+            <tr class="hi"><td>800</td><td class="num">—</td><td class="num">—</td><td class="num">8.88</td><td class="num">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Rates are individually good or bad — this is not a speed limit</h3>
+
+      <p>1500000 outperforms 2000000 decisively, which rules out bandwidth as the mechanism and points at divisor/timing error per rate on the CH340. There are two distinct failure modes, and the second is dangerous:</p>
+
+      <div class="tw">
+        <table>
+          <caption>CH340K rate survey</caption>
+          <thead><tr><th>Rate</th><th>Verdict</th><th>Failure mode</th></tr></thead>
+          <tbody>
+            <tr><td>115200</td><td><span class="tag t-pass">good</span></td><td>—</td></tr>
+            <tr><td>250000</td><td><span class="tag t-fail">bad</span></td><td>Worked initially, then failed at identify</td></tr>
+            <tr><td>460800</td><td><span class="tag t-fail">bad</span></td><td>Never worked — fails at identify</td></tr>
+            <tr><td>921600</td><td><span class="tag t-pass">good</span></td><td>—</td></tr>
+            <tr class="hi"><td>1500000</td><td><span class="tag t-pass">best</span></td><td>Shipped</td></tr>
+            <tr><td>2000000</td><td><span class="tag t-fail">bad</span></td><td><strong>Connects, enumerates, drives all 4 motors correctly — then corrupts ~6% of bytes under sustained load</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note err">
+        <div class="nh">2000000 passes every bench check and then dies mid-print</div>
+        <p>460800 and 250000 fail at identify — you never connect, and the problem is obvious. 2000000 reports <code>ready</code>, drives every axis correctly in both directions, and passes the axis test. It then collapses at 60&nbsp;mm/s under real motion. A rate can be bad in a way that no quick check will reveal.</p>
+      </div>
+      <p>A refinement worth recording: at 1.5 Mbps the link carries ~150,000 bytes/s and the workload used <strong>4–8 kB/s</strong> — about 3–5% utilisation. The baud effect is therefore <em>latency</em>, not bandwidth. A 64-byte message takes 2.6 ms at 250000 and 0.43 ms at 1500000, and <code>Timer too close</code> is by definition a late-arrival failure.</p>
+    </section>
+
+    <!-- ============ SYNTHETIC ============ -->
+    <section id="synthetic">
+      <h2><span class="sn">06</span>Synthetic stress tests</h2>
+      <div class="sectrule"></div>
+      <p>Two harnesses were built. The first drove a single axis around a 120 mm square at increasing speed. The second used real <code>kinematics: corexy</code> with a real <code>[extruder]</code>, pressure advance, z-hops on an 8 mm leadscrew, and abrupt retractions — an attempt to reproduce a printer's duty cycle rather than a benchmark's.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Study 1 · single-axis ramp, 180 s per phase, 250000 baud</caption>
+          <thead><tr><th>mm/s</th><th class="num">steps/s</th><th class="num">distance</th><th class="num">retx%</th><th class="num">jitter</th><th class="num">StallGuard</th></tr></thead>
+          <tbody>
+            <tr><td>50</td><td class="num">4 000</td><td class="num">9.1 m</td><td class="num">0.0</td><td class="num">143 µs</td><td class="num">22–23</td></tr>
+            <tr><td>200</td><td class="num">16 000</td><td class="num">34.6 m</td><td class="num">0.0</td><td class="num">128 µs</td><td class="num">74–83</td></tr>
+            <tr><td>400</td><td class="num">32 000</td><td class="num">65.8 m</td><td class="num">0.0</td><td class="num">128 µs</td><td class="num">129–196</td></tr>
+            <tr class="dim"><td>600</td><td class="num">48 000</td><td class="num">95.0 m</td><td class="num">0.0</td><td class="num">98 µs</td><td class="num"><strong>2–4</strong> ← stall signature</td></tr>
+            <tr><td>800</td><td class="num">64 000</td><td class="num">123.4 m</td><td class="num">0.0</td><td class="num">130 µs</td><td class="num">76–210</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>471 m of travel, zero retransmits at any speed. The StallGuard collapse at 600&nbsp;mm/s (900 RPM at 40 mm/rev on 0.8 A) is the mechanical limit appearing, not an electrical one.</p>
+
+      <p>Study 2, the CoreXY simulation, produced the shutdown at 300&nbsp;mm/s that drove the (incorrect) "concurrency ceiling" conclusion — later shown to be the 250000 baud rate.</p>
+
+      <div class="note err">
+        <div class="nh">The synthetic protocol was far harsher than any real print</div>
+        <p>It issued <strong>9–15 moves/s with 43–69 mm segments</strong> at 400–1000 mm/s: <strong>32,000–80,000 steps/s per motor</strong>. Real sliced geometry has a 0.5 mm median segment and is accel-limited to roughly <strong>6,000 steps/s</strong>. Every envelope figure derived from it is pessimistic. The firmware comparisons remain valid because they were internally controlled; the absolute speeds do not transfer.</p>
+      </div>
+      <p>The protocol also had a genuine defect found late: its 45° infill always used the same diagonal, so in CoreXY one motor carried all infill for the whole run. Load balance measured <strong>0.59</strong>. Alternating the diagonal per layer — and alternating the two objects between main- and anti-diagonal layouts, because travel between them was 0.205 balanced — brought it to <strong>0.94–0.995</strong>. A dead statement in the infill loop had also disabled zigzag alternation entirely.</p>
+    </section>
+
+    <!-- ============ SR ============ -->
+    <section id="sr">
+      <h2><span class="sn">07</span>Firmware optimisation: the shift register</h2>
+      <div class="sectrule"></div>
+      <p>Every step pulse on this board passes through a 74HC595. The first useful measurement was to quantify what that costs, by running Klipper's own three-stepper benchmark on SR pins and then on direct GPIO — same board, same firmware, same baud.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Cost of the shift register</caption>
+          <thead><tr><th>Step pins</th><th class="num">Max sustained</th></tr></thead>
+          <tbody>
+            <tr><td>Direct GPIO</td><td class="num"><strong>1 200 K steps/s</strong></td></tr>
+            <tr><td>74HC595 shift register</td><td class="num">720 K steps/s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The SR costs <strong>40%</strong> of the step rate. A prior experiment had shown that raising the SR clock to 40 MHz changed nothing measurable — the two facts only reconcile if the cost is <strong>CPU-side APB register access, not shift duration</strong>. That diagnosis drove three changes.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Benchmark progression · each change measured separately</caption>
+          <thead><tr><th>Build</th><th>Change</th><th class="num">steps/s</th><th class="num">Δ</th></tr></thead>
+          <tbody>
+            <tr><td>baseline</td><td>—</td><td class="num">720 K</td><td class="num">—</td></tr>
+            <tr><td>v2</td><td>CCOUNT deadline replaces the busy-wait poll</td><td class="num">900 K</td><td class="num">+25%</td></tr>
+            <tr><td>v3</td><td>Single store to SPI_CMD instead of read-modify-write</td><td class="num">1 028 K</td><td class="num">+14%</td></tr>
+            <tr class="hi"><td>v4</td><td>Chain state held pre-reversed in one word</td><td class="num">1 107 K</td><td class="num">+8%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>+54% on the benchmark, and 40/40 on MSCNT pulse integrity.</strong> Both green. Then the same builds were run against a real four-stepper CoreXY load at 400&nbsp;mm/s — cold, identical workload, firmware the only variable.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Real load at 400 mm/s · the benchmark predicted nothing</caption>
+          <thead><tr><th>Build</th><th class="num">benchmark</th><th class="num">moves</th><th class="num">retx%</th><th>Outcome</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td>baseline</td><td class="num">720 K</td><td class="num">1716 ×6</td><td class="num">4.9–5.9</td><td><span class="tag t-pass">completed ×6</span></td></tr>
+            <tr><td>v7 <em>(ROM-call hoist only)</em></td><td class="num">720 K</td><td class="num">1716 ×2</td><td class="num">4.09 / 4.77</td><td><span class="tag t-pass">completed</span></td></tr>
+            <tr><td>v6 <em>(+ SPI_CMD store)</em></td><td class="num">1 028 K</td><td class="num">1716 ×2</td><td class="num">11.5 / 12.0</td><td><span class="tag t-warn">2× retx</span></td></tr>
+            <tr><td>v5 <em>(+ one-word state)</em></td><td class="num">1 028 K</td><td class="num">623 / 87 / 159</td><td class="num">20.7–24.6</td><td><span class="tag t-fail">shutdown ×3</span></td></tr>
+            <tr><td>v4 <em>(+ deadline)</em></td><td class="num">1 107 K</td><td class="num">132</td><td class="num">26.4</td><td><span class="tag t-fail">shutdown</span></td></tr>
+            <tr><td>v2 <em>(deadline alone)</em></td><td class="num">900 K</td><td class="num">27</td><td class="num">7.3</td><td><span class="tag t-fail">shutdown</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Two independently harmful changes, two different mechanisms</h3>
+
+      <div class="note err">
+        <div class="nh">1 · The CCOUNT deadline is unsafe</div>
+        <p>Skipping the hardware handshake because elapsed time "proves" the transfer finished fails under four concurrent steppers, where steps land sub-microsecond apart. 27 moves before shutdown. Single-axis tests cannot see it: even at 64,000 steps/s, steps on one axis are ~15 µs apart, so the deadline has always expired and the fast path is never exercised.</p>
+      </div>
+      <div class="note err">
+        <div class="nh">2 · The plain store removes an implicit bus barrier</div>
+        <p><code>spi_ll_user_start()</code> is <code>hw-&gt;cmd.usr = 1</code> — a bitfield write to a volatile register, which the compiler must implement as an APB <em>read</em>, an OR, and an APB write. That read forces the preceding posted <code>data_buf</code> write to land before the transfer starts. Replacing it with a bare store removes the barrier, and the SPI can begin shifting before the FIFO data has arrived.</p>
+      </div>
+      <p>The only safe change is <strong>v7</strong>: hoisting <code>esp_rom_get_cpu_ticks_per_us()</code> — a ROM call, neither const nor pure, so the compiler cannot lift it — out of the wait loop. It shows <strong>zero benchmark gain</strong>, because the call only executes when the loop actually spins, yet is consistently better under real load.</p>
+
+      <div class="note">
+        <div class="nh">Also fixed in passing</div>
+        <p><code>spi_ll_write_buffer()</code> memcpy's 4 bytes per <code>data_buf</code> slot out of a <code>CONFIG_SR_BYTE_NO</code>-sized buffer — reading two bytes past the end of a stack buffer on <em>every step</em> when that value is 2.</p>
+      </div>
+    </section>
+
+    <!-- ============ AB ============ -->
+    <section id="ab">
+      <h2><span class="sn">08</span>Controlled A/B: baseline vs v7</h2>
+      <div class="sectrule"></div>
+      <p>Six maximum-finding runs, order counterbalanced across three rounds (A,B / B,A / A,B), each cold with a verify-flashed image and a <code>state=ready</code> gate, ramping 400 → 1000 mm/s.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Ceiling — too noisy to decide anything</caption>
+          <thead><tr><th>Firmware</th><th>Ceilings (3 runs)</th><th class="num">Spread</th></tr></thead>
+          <tbody>
+            <tr><td>baseline</td><td>700, 800, 1000</td><td class="num">300</td></tr>
+            <tr><td>v7</td><td>600, 800, 1000</td><td class="num">400</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>The same firmware varies by 300–400 mm/s run to run.</strong> A metric with that spread cannot resolve a difference between two firmwares at n=3, and any conclusion drawn from a single ramp would be luck. Retransmit rate, repeatable to a few tenths all day, does resolve it — paired within round, since phases inside a run are correlated:</p>
+
+      <div class="tw">
+        <table>
+          <caption>Mean retx delta (v7 − baseline), paired by round</caption>
+          <thead><tr><th>Round</th><th class="num">Phases paired</th><th class="num">Mean delta</th></tr></thead>
+          <tbody>
+            <tr><td>r1</td><td class="num">3</td><td class="num">−0.193 pp</td></tr>
+            <tr><td>r2</td><td class="num">5</td><td class="num">−0.576 pp</td></tr>
+            <tr><td>r3</td><td class="num">7</td><td class="num">−0.396 pp</td></tr>
+            <tr class="hi"><td>combined</td><td class="num">15</td><td class="num">−0.388 pp (σ 0.191)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>All three rounds favour v7, and neither firmware stalled once in ~68,000 moves. <strong>Decision: ship baseline.</strong> The two are functionally equivalent — identical ceiling, zero stalls, and Klipper's protocol absorbs a 0.39 pp retransmit difference entirely. Against that, baseline is zero divergence from the fork. A day that produced three changes which passed every available test and were harmful is a strong prior for preferring unmodified code when the measured gain is this thin.</p>
+    </section>
+
+    <!-- ============ REAL ============ -->
+    <section id="real">
+      <h2><span class="sn">09</span>Real prints</h2>
+      <div class="sectrule"></div>
+      <p>All prior testing used a harness that issued G-code one API call at a time. Real prints are streamed by klippy itself from <code>[virtual_sdcard]</code>, which removes the per-command host round-trip entirely. Heaters, fans and homing are neutralised with macros so unmodified slicer output runs on a bench with no hotend.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Workload comparison</caption>
+          <thead><tr><th>Workload</th><th class="num">moves/s</th><th class="num">mean segment</th><th class="num">wire</th><th class="num">retx%</th><th>Outcome</th></tr></thead>
+          <tbody>
+            <tr><td>Synthetic, 400–1000 mm/s</td><td class="num">9–15</td><td class="num">43–69 mm</td><td class="num">4–8 kB/s</td><td class="num">5–26</td><td><span class="tag t-fail">shutdowns</span></td></tr>
+            <tr><td>Benchy, 0.2 mm quality</td><td class="num">~115</td><td class="num">1.37 mm</td><td class="num">6 kB/s</td><td class="num">0.1</td><td><span class="tag t-pass">untouched</span></td></tr>
+            <tr><td>Speed profile, 500 mm/s</td><td class="num">~180</td><td class="num">1.53 mm</td><td class="num">8 kB/s</td><td class="num">0.3–0.7</td><td><span class="tag t-pass">untouched</span></td></tr>
+            <tr class="hi"><td>Speed profile, 900–1000 mm/s</td><td class="num">~330</td><td class="num">1.53 mm</td><td class="num">16 kB/s</td><td class="num">6–7</td><td><span class="tag t-pass">completes 3:30</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The quality Benchy proved <em>impossible</em> to stress. A ramp from 200 to 1000 mm/s with acceleration scaled 5,000 → 40,000 produced this:</p>
+
+      <div class="tw">
+        <table>
+          <caption>Commanded vs achieved · 0.2 mm quality Benchy</caption>
+          <thead><tr><th class="num">Commanded</th><th class="num">Effective</th><th class="num">steps/s/motor</th><th class="num">retx%</th></tr></thead>
+          <tbody>
+            <tr><td class="num">200 mm/s</td><td class="num">64.3</td><td class="num">5 146</td><td class="num">0.094</td></tr>
+            <tr><td class="num">400 mm/s</td><td class="num">72.7</td><td class="num">5 813</td><td class="num">0.152</td></tr>
+            <tr><td class="num">600 mm/s</td><td class="num">75.5</td><td class="num">6 037</td><td class="num">0.084</td></tr>
+            <tr class="hi"><td class="num">1000 mm/s</td><td class="num">76.3</td><td class="num">6 102</td><td class="num">0.116</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Commanding 5× the speed produced 19% more motion.</strong> With a 0.52 mm median segment the toolhead is geometry-bound and the MCU never sees more than ~6,000 steps/s per motor — against the 32,000–80,000 the synthetic protocol was pushing. That single comparison explains why one shows 5% retransmits and shutdowns while the other sits at 0.1% with a full buffer.</p>
+
+      <h3>What actually loads this board</h3>
+      <p>Not move count — <strong>sustained velocity</strong>. Three changes to the <em>file</em> mattered more than every motion parameter combined:</p>
+      <ol class="body">
+        <li><strong>Remove z-hops.</strong> Z is a TR8x8 leadscrew at 8× the steps/mm of XY, capped at <code>max_z_velocity 100</code> / <code>max_z_accel 2000</code>. Every hop is a slow, step-dense interruption that fragments fast motion into bursts the board absorbs trivially.</li>
+        <li><strong>Remove retraction.</strong> Each retract/unretract changes the extrusion ratio, so <code>instantaneous_corner_velocity</code> caps that junction hard.</li>
+        <li><strong>Slice fast.</strong> With nothing interrupting, the toolhead finally sustains velocity — and sustained velocity is the only thing this board has ever been sensitive to.</li>
+      </ol>
+    </section>
+
+    <!-- ============ MATH ============ -->
+    <section id="math">
+      <h2><span class="sn">10</span>The motion maths</h2>
+      <div class="sectrule"></div>
+      <p>Read straight from <code>klippy/toolhead.py</code> rather than from documentation:</p>
+
+      <div class="eq">
+junction_deviation = SCV² × (√2 − 1) / max_accel<br>
+move_jd_v2         = R_jd × junction_deviation × accel<br>
+R_jd               = sin(θ/2) / (1 − sin(θ/2)),  where sin(θ/2) = cos(φ/2)<br><br>
+⇒ <b>v_junction = SCV × √(R_jd × 0.41421)</b>  — acceleration cancels
+      </div>
+      <p>At φ = 90° this reduces to exactly SCV, which is the parameter's definition. The competing limits keep their acceleration dependence:</p>
+
+      <div class="eq">
+v_centripetal = √(0.5 × d × accel / tan(φ/2))<br>
+v_extruder    = ICV / |Δ(E per mm)|
+      </div>
+      <h3>Applied to the real file</h3>
+      <p>The Benchy's junction angles are bimodal — p10 is 1.8° (smooth hull curves) but p75 is 48° and p90 is 105° (infill reversals and corners). Junction velocity at the real percentiles:</p>
+
+      <div class="tw">
+        <table>
+          <caption>Junction velocity (mm/s) by SCV — exact, acceleration-independent</caption>
+          <thead><tr><th>Junction</th><th class="num">SCV 5</th><th class="num">SCV 10</th><th class="num">SCV 15</th><th class="num">SCV 20</th><th class="num">SCV 30</th></tr></thead>
+          <tbody>
+            <tr><td>p10 · 1.8°</td><td class="num">283</td><td class="num">566</td><td class="num">848</td><td class="num">1131</td><td class="num">1697</td></tr>
+            <tr><td>median · 9.8°</td><td class="num">53</td><td class="num">106</td><td class="num">160</td><td class="num">213</td><td class="num">319</td></tr>
+            <tr class="dim"><td>p75 · 48°</td><td class="num">10</td><td class="num">21</td><td class="num">31</td><td class="num">42</td><td class="num">63</td></tr>
+            <tr class="dim"><td>p90 · 105°</td><td class="num">4</td><td class="num">8</td><td class="num">12</td><td class="num">16</td><td class="num">24</td></tr>
+            <tr><td>90° square</td><td class="num">5</td><td class="num">10</td><td class="num">15</td><td class="num">20</td><td class="num">30</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A quarter of all junctions are capped at <strong>≤10 mm/s</strong> at the default SCV 5. That is why effective speed sat at 64 mm/s while 1000 was commanded.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Per-junction binding limit, evaluated over every real junction</caption>
+          <thead><tr><th class="num">SCV</th><th class="num">accel</th><th class="num">p25 cap</th><th class="num">median</th><th>Bound by</th></tr></thead>
+          <tbody>
+            <tr><td class="num">5</td><td class="num">5 000</td><td class="num">10</td><td class="num">51</td><td>SCV 86%</td></tr>
+            <tr><td class="num">10</td><td class="num">5 000</td><td class="num">21</td><td class="num">77</td><td>centripetal 48% / SCV 46%</td></tr>
+            <tr><td class="num">20</td><td class="num">5 000</td><td class="num">35</td><td class="num">89</td><td>centripetal 66% / SCV 27%</td></tr>
+            <tr class="hi"><td class="num">20</td><td class="num">20 000</td><td class="num">40</td><td class="num">153</td><td>SCV 46% / centripetal 45%</td></tr>
+            <tr><td class="num">30</td><td class="num">20 000</td><td class="num">58</td><td class="num">173</td><td>centripetal 57% / SCV 32%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>SCV alone <strong>saturates</strong>: past roughly 15 at 5,000 accel the centripetal term takes over. The two must be raised together — SCV 20 with 20,000 accel nearly triples the median cap, where SCV 20 at 5,000 reaches only 89.</p>
+
+      <h3>Measured against the theory</h3>
+
+      <div class="tw">
+        <table>
+          <caption>Quality Benchy · identical 8% of file, settings the only variable</caption>
+          <thead><tr><th class="num">SCV</th><th class="num">accel</th><th class="num">MCR</th><th class="num">duration</th><th class="num">retx%</th></tr></thead>
+          <tbody>
+            <tr><td class="num">5</td><td class="num">20 000</td><td class="num">0.5</td><td class="num">175 s</td><td class="num">0.224</td></tr>
+            <tr><td class="num">10</td><td class="num">20 000</td><td class="num">0.5</td><td class="num">160 s</td><td class="num">0.076</td></tr>
+            <tr><td class="num">15</td><td class="num">20 000</td><td class="num">0.5</td><td class="num">150 s</td><td class="num">0.137</td></tr>
+            <tr><td class="num">20</td><td class="num">20 000</td><td class="num">0.0</td><td class="num">140 s</td><td class="num">0.193</td></tr>
+            <tr class="hi"><td class="num">30</td><td class="num">40 000</td><td class="num">0.0</td><td class="num">135 s</td><td class="num">0.128</td></tr>
+            <tr><td class="num">40</td><td class="num">50 000</td><td class="num">0.0</td><td class="num">135 s</td><td class="num">0.055</td></tr>
+            <tr><td class="num">40</td><td class="num">100 000</td><td class="num">0.0</td><td class="num">130 s</td><td class="num">0.197</td></tr>
+            <tr><td class="num">60</td><td class="num">500 000</td><td class="num">0.0</td><td class="num">130 s</td><td class="num">0.131</td></tr>
+            <tr class="dim"><td class="num">150</td><td class="num">1 000 000</td><td class="num">0.0</td><td class="num">125 s</td><td class="num">0.112</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>SCV 150 and one million mm/s² — 0.112% retransmits, zero stalls.</strong> Roughly twenty times the acceleration of the fastest machines on the SpeedBoatRace leaderboard, and the board is quieter than it was at SCV 5. Everything worth having arrives by SCV 30 / accel 50k, exactly as the per-junction analysis predicted.</p>
+
+      <div class="note warn">
+        <div class="nh">Two API facts worth knowing</div>
+        <p><code>SET_VELOCITY_LIMIT</code> does <strong>not</strong> clamp to the configured <code>max_accel</code> / <code>max_velocity</code> — it assigns directly, so runtime values can far exceed the config. And <code>ACCEL_TO_DECEL</code> does not exist in this Klipper version; only VELOCITY, ACCEL, SQUARE_CORNER_VELOCITY and MINIMUM_CRUISE_RATIO are read. Passing it is silently ignored.</p>
+      </div>
+    </section>
+
+    <!-- ============ SPEEDBOAT ============ -->
+    <section id="speedboat">
+      <h2><span class="sn">11</span>The speed Benchy, and finding a speed that actually holds</h2>
+      <div class="sectrule"></div>
+
+      <p>The SpeedBoatRace rules constrain the profile rather than the motion, which is what makes the comparison meaningful: <strong>&le;0.25&nbsp;mm layers, 2 walls, 10% infill, 3 top/bottom layers, &le;0.5&nbsp;mm nozzle or line width</strong>, PLA/PETG/ASA/ABS, dimensionally accurate, stepper-driven.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Profile iterations &middot; same model, same rules</caption>
+          <thead><tr><th>File</th><th class="num">path</th><th class="num">XY moves</th><th class="num">Z moves</th><th class="num">mean feed</th></tr></thead>
+          <tbody>
+            <tr><td>0.2 mm quality</td><td class="num">159.1 m</td><td class="num">116 435</td><td class="num">2 076</td><td class="num">158 mm/s</td></tr>
+            <tr><td>0.25 mm, 500 mm/s</td><td class="num">91.9 m</td><td class="num">62 078</td><td class="num">1 980</td><td class="num">265 mm/s</td></tr>
+            <tr class="hi"><td>+ no hops, no retraction</td><td class="num">91.1 m</td><td class="num">59 626</td><td class="num">192</td><td class="num">500 mm/s</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Mean feedrate jumping 265 &rarr; 500 mm/s is the tell: the previous file&rsquo;s average was dragged down by slow retract and unretract moves. Z moves falling 1,980 &rarr; 192 is one per layer &mdash; every hop gone.</p>
+
+      <div class="note err">
+        <div class="nh">The first ceiling was published from a single run, and was wrong</div>
+        <p>An initial search found 1000&nbsp;mm/s completing and 1050 failing, and this report originally stated that as the ceiling. Repeating it destroyed the claim: <strong>1000&nbsp;mm/s completes 3 times in 8, and 950 completes 7 times in 13.</strong> Both finish in the same 3:30 when they finish, so the faster setting bought nothing and lost the job roughly two-thirds of the time.</p>
+        <p>The same standard had already been applied rigorously to the firmware comparison &mdash; six baseline runs, counterbalanced ordering, paired statistics &mdash; and was then abandoned the moment the question changed from <em>which firmware</em> to <em>how fast</em>.</p>
+      </div>
+
+      <h3>The failure is stochastic, not a threshold</h3>
+
+      <p>Across 16 full prints the failures landed at <strong>4.7, 9.5, 10.0, 10.0, 10.8, 12.2, 20.9, 23.4, 25.9, 26.9, 86.0, 87.2 and 89.3%</strong> of the file &mdash; three tight clusters rather than the uniform spread a constant hazard would give. Binning the file into 2% slices and measuring what each demands:</p>
+
+      <div class="tw">
+        <table>
+          <caption>Geometry where failures cluster vs everywhere else</caption>
+          <thead><tr><th>Buckets</th><th class="num">mean junction angle</th><th class="num">mean segment</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td>where failures occurred (n=7)</td><td class="num">24.7&deg;</td><td class="num">1.92 mm</td></tr>
+            <tr><td>all others (n=43)</td><td class="num">29.8&deg;</td><td class="num">1.41 mm</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Failures cluster where segments are <strong>36% longer</strong> and junctions shallower &mdash; both of which let the toolhead reach and hold higher velocity. That is the same mechanism as everything else in this report: sustained velocity is what loads this board, so it fails in the specific stretches of geometry that permit it.</p>
+
+      <div class="note">
+        <div class="nh">Thermal was tested and ruled out</div>
+        <p>Success rate appeared to degrade across a session (first 6 runs 5/6, last 10 runs 3/10), suggesting heat. A cooldown test &mdash; motors de-energised, 25 minutes idle &mdash; returned <strong>2/5, identical to the hot batch&rsquo;s 2/5</strong>. TMC over-temperature flags were clear (<code>otpw=0, ot=0</code>) on all four drivers immediately after an hour of load, the host was idle (load 0.39, a 12&nbsp;MB log read in 51&nbsp;ms), and driver heatsinks measured ~40&nbsp;&deg;C against a ~120&nbsp;&deg;C warning threshold. The apparent degradation was clustering in a small sample.</p>
+      </div>
+
+      <h3>Staircase search: 10 runs per level</h3>
+
+      <p>Ten runs at a speed; any failure drops 100&nbsp;mm/s, a clean 10/10 steps up 50, and the search terminates when an established level has a known failure 50 above it. Currents were raised to <strong>1.4&nbsp;A</strong> on X/Y/Z and 0.6&nbsp;A on E for these runs (verified at the drivers via <code>GLOBALSCALER</code>/<code>IRUN</code>).</p>
+
+      <div class="tw">
+        <table>
+          <caption>Reliability by speed &middot; identical geometry, 1.4 A, 100k accel</caption>
+          <thead><tr><th class="num">Speed</th><th>SCV 50</th><th>SCV 30</th><th class="num">mean retx</th><th class="num">time</th></tr></thead>
+          <tbody>
+            <tr><td class="num">700 mm/s</td><td><span class="tag t-pass">10/10</span></td><td>&mdash;</td><td class="num">4.55%</td><td class="num">3:46</td></tr>
+            <tr><td class="num">750 mm/s</td><td><span class="tag t-pass">10/10</span></td><td>&mdash;</td><td class="num">5.33%</td><td class="num">3:30</td></tr>
+            <tr class="hi"><td class="num">800 mm/s</td><td><span class="tag t-fail">5/6 failed</span></td><td><span class="tag t-pass">10/10</span></td><td class="num">5.02%</td><td class="num">3:45</td></tr>
+            <tr><td class="num">850 mm/s</td><td>&mdash;</td><td><span class="tag t-fail">9/10 failed</span></td><td class="num">5.23%</td><td class="num">3:46</td></tr>
+            <tr><td class="num">900 mm/s</td><td><span class="tag t-fail">3/4 failed</span></td><td>&mdash;</td><td class="num">6.38%</td><td class="num">3:30</td></tr>
+            <tr class="dim"><td class="num">950 mm/s</td><td class="num">7/13</td><td>&mdash;</td><td class="num">&mdash;</td><td class="num">3:30</td></tr>
+            <tr class="dim"><td class="num">1000 mm/s</td><td class="num">3/8</td><td>&mdash;</td><td class="num">&mdash;</td><td class="num">3:30</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>SCV 30 bought back exactly one level.</strong> 800&nbsp;mm/s fails at SCV 50 and runs 10/10 at SCV 30, which is the junction-velocity mechanism confirmed on hardware: in the failure hotspots (~17&deg; mean angle) SCV 50 permits 305&nbsp;mm/s through a junction and SCV 30 permits 183&nbsp;mm/s &mdash; a 40% cut exactly where the failures live.</p>
+
+      <p>850&nbsp;mm/s failed on <strong>run 10 of 10</strong>. At a five-run sample it would have been declared established and been wrong &mdash; the clearest possible argument for the sample size.</p>
+
+      <div class="note">
+        <div class="nh">Why 800 mm/s is the answer, and not an arbitrary one</div>
+        <p>At 0.25 &times; 0.5&nbsp;mm the profile extrudes 0.125&nbsp;mm&sup2; per mm, so <strong>800&nbsp;mm/s = 100&nbsp;mm&sup3;/s</strong>. That is the melt rate of a high-end hotend. Above it the print is flow-limited no matter how good the motion system is &mdash; the 1000&nbsp;mm/s slice demands 125&nbsp;mm&sup3;/s, which no such hotend can deliver, so the slicer&rsquo;s 3m37s estimate describes motion that could never be extruded.</p>
+        <p>SCV 50 is not a real-machine setting either (tuned printers run 5&ndash;15; aggressive builds 20&ndash;30), which makes the 750&nbsp;mm/s / SCV 50 result academic. <strong>800&nbsp;mm/s at SCV 30 and 100k acceleration is a configuration a purpose-built machine could actually run</strong>, and the board holds it 10/10.</p>
+      </div>
+
+      <h3>Higher motor current changed nothing</h3>
+      <p>Raising X/Y/Z from 0.8 to 1.4&nbsp;A had no measurable effect on reliability, as predicted before the runs: <code>Timer too close</code> is an MCU scheduling failure and is independent of motor torque. At 0.8&nbsp;A, 950&nbsp;mm/s gave 7/13; at 1.4&nbsp;A, 900 gave 3/4 and 800 gave 5/6 &mdash; the same marginal behaviour. What the current did buy is mechanical: motor cases at 65&ndash;75&nbsp;&deg;C, driver heatsinks at ~40&nbsp;&deg;C, and a supply draw of 1.07&ndash;1.15&nbsp;A at 36&nbsp;V under load against 0.73&nbsp;A holding.</p>
+
+      <div class="note warn">
+        <div class="nh">PSU current is not motor current</div>
+        <p>The TMC2160 is a switching regulator: it PWMs the 36&nbsp;V rail to force 1.4&nbsp;A through a coil needing only a few volts. Naive intuition says &ldquo;4 motors &times; 1.4&nbsp;A = 5.6&nbsp;A&rdquo;; the measured draw is ~1.1&nbsp;A, about 5&times; lower. Working backwards from the 0.73&nbsp;A holding figure gives a winding resistance of ~1.9&nbsp;&Omega; per phase, which is normal for this motor class &mdash; the power model is consistent.</p>
+      </div>
+    </section>
+
+    <!-- ============ TRAPS ============ -->
+    <section id="traps">
+      <h2><span class="sn">12</span>Measurement traps</h2>
+      <div class="sectrule"></div>
+      <p>Six errors were caught during this work. Every one of them was found because a later number refused to cohere with an earlier one — not because anything was checked carefully in advance. They are the most portable output of the project.</p>
+
+      <h4>01 · Klipper's step-rate benchmark predicts nothing, in either direction</h4>
+      <p>It drives three steppers at a fixed interval with nothing else running — no four-stepper contention, no coordinated moves, no pressure advance, no serial traffic. It endorsed every build that later shut down, and scored the one genuinely good change at exactly zero.</p>
+
+      <h4>02 · A correctness test that cannot reach the failure mode is not evidence</h4>
+      <p>MSCNT pulse integrity passed 40/40 on firmware that died in 27 moves. It drives one axis at a time, so steps are ~15 µs apart; it structurally cannot exercise the sub-microsecond inter-stepper spacing where those changes break.</p>
+
+      <h4>03 · On MCU shutdown, Klipper leaves <code>print_stats</code> at <code>paused</code>, not <code>error</code></h4>
+      <p>A completion loop polling <code>print_stats</code> alone reports a dead printer as healthy indefinitely — it did so here for two minutes, printing <code>stalls 0</code> the whole time. Check klippy's own <code>info</code> state.</p>
+
+      <h4>04 · Single runs are not evidence — and knowing that is not the same as applying it</h4>
+      <p>Baseline is repeatable to ±0.5% retransmits and lands on exactly 1716 moves every time — but that took six runs to establish. The failing builds died at 27 / 87 / 159 / 623 moves, so a single run could have been read either way. Ceiling as a metric turned out to have a 300–400 mm/s spread on identical firmware.</p>
+      <p>The discipline was then dropped for the speed question in the same session: a <strong>1000 mm/s ceiling was published from n=1</strong> and is really 3/8. Later, <strong>850 mm/s passed nine consecutive runs and failed the tenth</strong> — a five-run protocol would have certified it.</p>
+
+      <h4>05 · A bisection inherited its bound from a different file</h4>
+      <p>The upper bound came from a run on a file whose <code>travel_speed = 100000</code> emitted <code>F6000000</code> travels. The bisection was about to report the ceiling as 975 mm/s — 20% low — and blame the board for a slicer typo. Three identical 3:30 runs cannot bracket a failure 25 mm/s away; that inconsistency is what exposed it.</p>
+
+      <h4>06 · <code>pgrep -f foo.sh</code> in a wait loop matches its own command line</h4>
+      <p>The shell running the loop contains the pattern, so the loop sees itself and never exits. Cost about twenty minutes of wall-clock across two occurrences, once as <code>pkill</code> that killed its own SSH session. Use a bracket pattern: <code>pgrep -f "fo[o].sh"</code>.</p>
+    </section>
+
+    <!-- ============ OPEN ============ -->
+    <section id="open">
+      <h2><span class="sn">13</span>Open questions</h2>
+      <div class="sectrule"></div>
+
+      <ul>
+        <li><strong>What sets the failure, mechanistically, is still unknown.</strong> It is <code>Timer too close</code> — an MCU timer deadline missed — and it correlates with sustained velocity and with specific high-velocity geometry. But thermal is ruled out, the host is idle, the link runs at 3–5% utilisation, and motor current is irrelevant. The proximate cause inside the firmware has not been isolated.</li>
+        <li><strong>The 40% shift-register headroom is real and unclaimed.</strong> It is CPU-side APB traffic, not shift duration. Any future attempt must keep both the hardware handshake and the read-modify-write barrier, and be gated on a four-stepper load test rather than a benchmark.</li>
+        <li><strong>CAN is feasible to write but blocked on hardware here</strong> — see the investigation note in the working report. ~100–150 lines against Klipper's three-function arch contract, but the board has no CAN transceiver, and bridge mode is impossible on the classic ESP32 (no native USB device).</li>
+        <li><strong>Hardware SPI on SPI3 is an empty stub.</strong> It would speed the MCU's side of a TMC transfer but not reduce the serial traffic those transfers generate — likely a smaller win than it appears. The cheaper experiment is reducing TMC polling frequency, which is config-only.</li>
+        <li><strong>The 125 s floor on the quality Benchy was never fully explained.</strong> A look-ahead simulator built from Klipper's own source reproduces the control to −2% but over-predicts by 57% at the top of the ramp.</li>
+        <li><strong>Klipper has no Modbus support</strong>, so the Huanyang VFD this board previously drove under FluidNC has no equivalent — a real regression for CNC use. Its UART1 (GPIO15/16 TX/RX, GPIO14 RTS) sits unused.</li>
+        <li><strong>Step loss is not directly measurable</strong> — there are no encoders. MSCNT proves pulses reach the driver, not that the rotor followed. At 800 mm/s the motors certainly do not follow.</li>
+      </ul>
+    </section>
+
+    <!-- ============ REPRO ============ -->
+    <section id="repro">
+      <h2><span class="sn">14</span>Reproducibility</h2>
+      <div class="sectrule"></div>
+      <div class="tw">
+        <table>
+          <caption>Shipped artefacts</caption>
+          <thead><tr><th>Item</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><td>Firmware (shipped)</td><td><code>klipper-rodent-1500000baud.bin</code> · md5 <code>df759535f15019869d64de39866fc45c</code> · flash at 0x10000</td></tr>
+            <tr><td>Firmware (v7, validated, not shipped)</td><td><code>…-v7.bin</code> · md5 <code>52a7f6ef695a338775c8aaee64e0127a</code></td></tr>
+            <tr><td>Firmware (rejected, kept for reproduction)</td><td><code>klipper-rodent-SRopt-REJECTED.bin</code></td></tr>
+            <tr><td>Rollback</td><td><code>rodent-fluidnc-full-4MB.bin</code> · md5 <code>24d343d897f2994cd4c68388538eb0c9</code></td></tr>
+            <tr><td>Serial rate</td><td>1500000 — compile-time <em>and</em> klippy <code>baud:</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h4>Harnesses</h4>
+      <p><code>verify-steps.py</code> (MSCNT pulse integrity) · <code>bench-sr.sh</code> (step-rate ladder, SR vs GPIO) · <code>corexy-print-sim.py</code> (synthetic CoreXY with A:B load accounting) · <code>stress-ab.sh</code> (counterbalanced firmware A/B) · <code>gcode-prep.py</code> (segment-density analysis) · <code>print-ramp.py</code> / <code>scv-row.py</code> / <code>full-print.py</code> (real-print ramps and acceptance) · <code>plan-sim.py</code> and <code>scv-table.py</code> (planner maths from source).</p>
+
+      <div class="note">
+        <div class="nh">Test protocol that finally discriminated</div>
+        <p>A SpeedBoatRace-legal Benchy with z-hops and retraction disabled, streamed through <code>[virtual_sdcard]</code>, run <strong>ten times</strong> at a fixed setting. It is the only workload found that meaningfully loads this board, and it is the gate any future firmware change should be measured against. Ten runs, not three: 850 mm/s passed nine and failed the tenth.</p>
+      </div>
+
+      <h4>Live monitoring</h4>
+      <p>Moonraker (own venv, data dir <code>~/printer_data</code>, attached to the existing klippy socket at <code>/tmp/klippy_uds</code>) plus Mainsail served by nginx on port 80. Moonraker joins as an additional read client, so it can be added mid-run without restarting klippy. Note that Mainsail is a full control UI — its print-control buttons will interfere with an automated run in progress.</p>
+    </section>
+
+  </main>
+
+  <footer>
+    Bench measurements on unloaded steppers · every result means the electronics kept up, not that the machine moved.<br>
+    BTT Rodent V1.1 · ESP32-WROOM-32URA-N4 · 4× TMC2160 · fermino/klipper-esp32-port + 4 local patches · 1500000 baud · 36 V · 0.8 A
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  var nav = document.querySelector('nav');
+  if (!nav) return;
+  var marker = nav.querySelector('.marker');
+  var links = Array.prototype.slice.call(nav.querySelectorAll('a[href^="#"]'));
+  var map = {};
+  var sections = links.map(function (a) {
+    var el = document.getElementById(a.getAttribute('href').slice(1));
+    if (el) map[el.id] = a;
+    return el;
+  }).filter(Boolean);
+  if (!sections.length || !marker) return;
+
+  var current = null;
+  function setActive(id) {
+    if (id === current) return;
+    current = id;
+    links.forEach(function (a) { a.classList.remove('active'); });
+    var a = map[id];
+    if (!a) return;
+    a.classList.add('active');
+    marker.style.height = a.offsetHeight + 'px';
+    marker.style.transform = 'translateY(' + a.parentElement.offsetTop + 'px)';
+  }
+
+  // Choose the last section whose top has passed the reading line. A naive
+  // "most visible" test misbehaves on short trailing sections that never fill
+  // the viewport and so could never win.
+  function update() {
+    var line = window.scrollY + window.innerHeight * 0.25;
+    var best = sections[0];
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].offsetTop <= line) best = sections[i]; else break;
+    }
+    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 4) {
+      best = sections[sections.length - 1];
+    }
+    setActive(best.id);
+  }
+
+  var ticking = false;
+  window.addEventListener('scroll', function () {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () { update(); ticking = false; });
+  }, {passive: true});
+  window.addEventListener('resize', function () { current = null; update(); });
+  links.forEach(function (a) {
+    a.addEventListener('click', function () { setTimeout(update, 60); });
+  });
+  update();
+})();
+</script>

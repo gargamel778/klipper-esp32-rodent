@@ -1,0 +1,47 @@
+
+  This is a debugging console for the Klipper micro-controller.
+  In addition to mcu commands, the following artificial commands are
+  available:
+    DELAY : Send a command at a clock time (eg, "DELAY 9999 get_uptime")
+    FLOOD : Send a command many times (eg, "FLOOD 22 .01 get_uptime")
+    SUPPRESS : Suppress a response message (eg, "SUPPRESS analog_in_state 4")
+    SET   : Create a local variable (eg, "SET myvar 123.4")
+    DUMP  : Dump memory (eg, "DUMP 0x12345678 100 32")
+    FILEDUMP : Dump to file (eg, "FILEDUMP data.bin 0x12345678 100 32")
+    STATS : Report serial statistics
+    LIST  : List available mcu commands, local commands, and local variables
+    HELP  : Show this text
+  All commands also support evaluation by enclosing an expression in { }.
+  For example, "reset_step_clock oid=4 clock={clock + freq}".  In addition
+  to user defined variables (via the SET command) the following builtin
+  variables may be used in expressions:
+    clock : The current mcu clock time (as estimated by the host)
+    freq  : The mcu clock frequency
+
+==================== attempting to connect ====================
+INFO:root:Starting serial connect
+Loaded 119 commands (33b24213-dirty-20260807_093501-build-host / gcc: (crosstool-NG esp-14.2.0_20241119) 14.2.0 binutils: (crosstool-NG esp-14.2.0_20241119) 2.43.1)
+MCU config: ADC_MAX=3300 CLOCK_FREQ=240000000 MCU=esp32 PWM_MAX=255 RECEIVE_WINDOW=192 SERIAL_BAUD=250000 STATS_SUMSQ_BASE=256 STEPPER_STEP_BOTH_EDGE=1
+====================       connected       ====================
+005.432: stats count=152 sum=491559 sumsq=8667894
+Eval: SET start_clock 2043455471
+Eval: reset_step_clock oid=0 clock=2043455471
+Eval: queue_step oid=0 interval=170 count=60000 add=0
+008.991: shutdown clock=2054003821 static_string_id=Stepper too far in past
+015.162: stats count=79 sum=68465 sumsq=266876
+INFO:root:Resetting prediction variance 2999157.136: freq=240001939 diff=1959862614 stddev=180074.246
+020.262: stats count=56 sum=49892 sumsq=240804
+INFO:root:Resetting prediction variance 2999158.120: freq=311493566 diff=587787356 stddev=240000.000
+INFO:root:Resetting prediction variance 2999159.103: freq=324786952 diff=249897459 stddev=240000.000
+INFO:root:Resetting prediction variance 2999160.087: freq=328914956 diff=79652794 stddev=240000.000
+INFO:root:Resetting prediction variance 2999161.071: freq=329957262 diff=-30670607 stddev=240000.000
+INFO:root:Resetting prediction variance 2999162.055: freq=329623531 diff=-111567538 stddev=240000.000
+025.362: stats count=56 sum=49894 sumsq=240851
+INFO:root:Resetting prediction variance 2999163.039: freq=328581005 diff=-175155425 stddev=240000.000
+INFO:root:Resetting prediction variance 2999164.023: freq=327142836 diff=-227213775 stddev=240000.000
+INFO:root:Resetting prediction variance 2999165.007: freq=325475187 diff=-270933139 stddev=240000.000
+INFO:root:Resetting prediction variance 2999165.991: freq=323673883 diff=-308269964 stddev=240000.000
+INFO:root:Resetting prediction variance 2999166.975: freq=321797541 diff=-340478511 stddev=240000.000
+030.462: stats count=56 sum=49836 sumsq=239703
+INFO:root:Resetting prediction variance 2999167.959: freq=319883815 diff=-368446279 stddev=240000.000
+INFO:root:Resetting prediction variance 2999168.942: freq=317957656 diff=-392814192 stddev=240000.000

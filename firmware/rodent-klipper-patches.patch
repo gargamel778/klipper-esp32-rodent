@@ -1,0 +1,158 @@
+diff --git a/klippy/chelper/pyhelper.c b/klippy/chelper/pyhelper.c
+index 8d4e4ee8..fb885c33 100644
+--- a/klippy/chelper/pyhelper.c
++++ b/klippy/chelper/pyhelper.c
+@@ -10,7 +10,11 @@
+ #include <stdio.h> // fprintf
+ #include <string.h> // strerror
+ #include <time.h> // struct timespec
++#ifdef __linux__
+ #include <sys/prctl.h>  // prctl
++#else
++#include <pthread.h> // pthread_setname_np
++#endif
+ #include "compiler.h" // __visible
+ #include "pyhelper.h" // get_monotonic
+ 
+@@ -98,5 +102,12 @@ dump_string(char *outbuf, int outbuf_size, char *inbuf, int inbuf_size)
+ int __visible
+ set_thread_name(char name[16])
+ {
++#ifdef __linux__
+     return prctl(PR_SET_NAME, name);
++#elif defined(__APPLE__)
++    // macOS can only name the calling thread, and takes no PR_SET_NAME
++    return pthread_setname_np(name);
++#else
++    return 0;
++#endif
+ }
+diff --git a/klippy/chelper/serialqueue.c b/klippy/chelper/serialqueue.c
+index 3ab7216b..2efde203 100644
+--- a/klippy/chelper/serialqueue.c
++++ b/klippy/chelper/serialqueue.c
+@@ -12,7 +12,19 @@
+ // clock times, prioritizes commands, and handles retransmissions.  A
+ // background thread is launched to do this work and minimize latency.
+ 
++#ifdef __linux__
+ #include <linux/can.h> // // struct can_frame
++#else
++// SocketCAN is Linux-only. Declare the wire layout so the CAN branches still
++// compile on macOS/BSD; serial_fd_type is never SQT_CAN on those platforms.
++#include <stdint.h> // uint32_t (needed here: this precedes the include below)
++struct can_frame {
++    uint32_t can_id;
++    uint8_t can_dlc;
++    uint8_t __pad, __res0, __res1;
++    uint8_t data[8] __attribute__((aligned(8)));
++};
++#endif
+ #include <math.h> // fabs
+ #include <pthread.h> // pthread_mutex_lock
+ #include <stddef.h> // offsetof
+diff --git a/scripts/ctr/extract_sections b/scripts/ctr/extract_sections
+index 086b761f..c97fec74 100755
+--- a/scripts/ctr/extract_sections
++++ b/scripts/ctr/extract_sections
+@@ -8,9 +8,12 @@ fi
+ 
+ OBJCOPY_BIN="${1}"
+ 
+-TMP_FILE="$(mktemp --suffix '.ctr')"
++# NB: `mktemp --suffix` is GNU coreutils only and is absent on BSD/macOS.
++# A temp directory with a fixed name inside is portable to both.
++TMP_DIR="$(mktemp -d)"
++TMP_FILE="${TMP_DIR}/section.ctr"
+ cleanup() {
+-	rm -f "${TMP_FILE}"
++	rm -rf "${TMP_DIR}"
+ }
+ trap cleanup EXIT
+ 
+diff --git a/src/esp32/Kconfig b/src/esp32/Kconfig
+index cd4ee2f0..a734c0b4 100644
+--- a/src/esp32/Kconfig
++++ b/src/esp32/Kconfig
+@@ -7,6 +7,7 @@ if MACH_ESPRESSIF_ESP32
+         select HAVE_GPIO_SPI
+         #select HAVE_GPIO_I2C
+         select HAVE_GPIO_HARD_PWM
++        select HAVE_STEPPER_OPTIMIZED_BOTH_EDGE
+         #select HAVE_CHIPID
+ 
+     config BOARD_DIRECTORY
+@@ -103,7 +104,7 @@ if MACH_ESPRESSIF_ESP32
+             default 26
+         config SR_CLOCK_FREQ_MHZ
+             int "Clock frequency (MHz)"
+-            range 1 10
++            range 1 80
+             default 10
+     endmenu
+ 
+diff --git a/src/esp32/gpio/gpio_pwm.c b/src/esp32/gpio/gpio_pwm.c
+index a74df8ca..1c4de517 100644
+--- a/src/esp32/gpio/gpio_pwm.c
++++ b/src/esp32/gpio/gpio_pwm.c
+@@ -4,6 +4,12 @@
+ #include "command.h"
+ #include "driver/ledc.h"
+ 
++// Klippy requires this constant for any pin configured with `hardware_pwm: True`
++// (klippy/mcu.py MCU_pwm._build_config); without it startup fails with
++// "Firmware constant 'PWM_MAX' not found". The LEDC timers below are set up with
++// LEDC_TIMER_8_BIT resolution, so full duty is 255.
++DECL_CONSTANT("PWM_MAX", (1 << LEDC_TIMER_8_BIT) - 1);
++
+ /**
+  * The LEDC peripheral has 4 "low speed" timers that are then muxed to 8
+  * channels. This function assigns a timer to the caller to avoid having
+diff --git a/src/esp32/gpio/gpio_pwm.h b/src/esp32/gpio/gpio_pwm.h
+index ad9300ee..79a526e4 100644
+--- a/src/esp32/gpio/gpio_pwm.h
++++ b/src/esp32/gpio/gpio_pwm.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "esp_idf_version.h"
+ #include "hal/ledc_types.h"
+ #include "hal/ledc_ll.h"
+ 
+@@ -15,6 +16,16 @@ static inline void __attribute__((always_inline)) gpio_pwm_write(struct gpio_pwm
+     // @todo some of this could be removed
+     ledc_ll_set_duty_int_part(LEDC_LL_GET_HW(), LEDC_LOW_SPEED_MODE, gpio.ledc_channel, val);
+     ledc_ll_set_sig_out_en(LEDC_LL_GET_HW(), LEDC_LOW_SPEED_MODE, gpio.ledc_channel, true);
++    // ledc_ll_set_duty_start()'s signature changed in ESP-IDF v5.5.2. Up to and
++    // including v5.5.1 the caller supplies duty_start as a 4th argument. From
++    // v5.5.2 the function takes three arguments: it always sets duty_start, and
++    // first busy-waits for any previous duty change to take effect — an
++    // ESP32-specific quirk Espressif moved out of callers and into the HAL.
++    // Passing `true` on the older signature reproduces the newer behaviour.
++#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 2)
+     ledc_ll_set_duty_start(LEDC_LL_GET_HW(), LEDC_LOW_SPEED_MODE, gpio.ledc_channel);
++#else
++    ledc_ll_set_duty_start(LEDC_LL_GET_HW(), LEDC_LOW_SPEED_MODE, gpio.ledc_channel, true);
++#endif
+     ledc_ll_ls_channel_update(LEDC_LL_GET_HW(), LEDC_LOW_SPEED_MODE, gpio.ledc_channel);
+ }
+diff --git a/src/esp32/gpio/shift_register.h b/src/esp32/gpio/shift_register.h
+index b9074ce5..13849bb4 100644
+--- a/src/esp32/gpio/shift_register.h
++++ b/src/esp32/gpio/shift_register.h
+@@ -26,9 +26,14 @@ static inline void __attribute__((always_inline)) gpio_sr_shift_out()
+         local_buffer[i] = sr_data[CONFIG_SR_BYTE_NO - 1 - i];
+     }
+ 
++    // esp_rom_get_cpu_ticks_per_us() is a ROM call, neither const nor pure, so
++    // the compiler cannot lift it out of the loop itself. Hoisting it is the
++    // ONLY change from stock in this build: same peripheral accesses in the same
++    // order, same data layout, no timing assumption - strictly less work.
+     uint32_t start = XTHAL_GET_CCOUNT();
++    const uint32_t timeout_ticks = SR_MAX_WAIT_FOR_IDLE_US * esp_rom_get_cpu_ticks_per_us();
+     while (HAL_FORCE_READ_U32_REG_FIELD(SPI_LL_GET_HW(SR_SPI_HOST)->cmd, usr)) {
+-        if (XTHAL_GET_CCOUNT() - start >= SR_MAX_WAIT_FOR_IDLE_US * esp_rom_get_cpu_ticks_per_us()) {
++        if (XTHAL_GET_CCOUNT() - start >= timeout_ticks) {
+             try_shutdown("SPI transaction took too long.");
+             return;
+         }
