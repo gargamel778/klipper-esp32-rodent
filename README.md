@@ -80,7 +80,11 @@ it builds on.
 
 - The ESP32 port is [`fermino/klipper-esp32-port`](https://github.com/fermino/klipper-esp32-port).
   It is not vendored here — clone it yourself. Patches developed here are in
-  `firmware/rodent-klipper-patches.patch` and are being offered upstream.
+  `firmware/rodent-klipper-patches.patch`; they have **not** been submitted upstream.
+  Four are generic rather than Rodent-specific and are worth applying to any ESP32 build:
+  a `mktemp` portability fix for BSD/macOS, a missing `PWM_MAX` declaration, an
+  `ESP_IDF_VERSION` guard around `ledc_ll_set_duty_start` (whose arity changed in IDF
+  v5.5.2), and `select HAVE_STEPPER_OPTIMIZED_BOTH_EDGE`, which measured +18% step rate.
 - Two other ESP32 Klipper efforts exist and are worth knowing about:
   [`nikhil-robinson/klipper_esp32`](https://github.com/nikhil-robinson/klipper_esp32) and
   [`kluoyun/klipper`](https://github.com/kluoyun/klipper/tree/dev/esp32) (branch
